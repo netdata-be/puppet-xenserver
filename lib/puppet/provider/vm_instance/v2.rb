@@ -69,7 +69,10 @@ Puppet::Type.type(:vm_instance).provide(:vms) do
         :actions_after_shutdown => record['actions_after_shutdown'], #done
         :actions_after_reboot   => record['actions_after_reboot'], #done
         :actions_after_crash    => record['actions_after_crash'], #done
-        :ram                    => record['memory_static_max'], # done
+        :ram                    => record['memory_dynamic_max'], 
+        :memory_dynamic_min     => record['memory_dynamic_min'],
+        :memory_static_max      => record['memory_static_max'],
+        :memory_static_min      => record['memory_static_min'],    
         :interfaces             => interfaces, #done
         :vifs                   => vifs, #done
         :cores_per_socket       => record['platform']['cores-per-socket'],
@@ -97,6 +100,10 @@ Puppet::Type.type(:vm_instance).provide(:vms) do
 
   def actions_after_shutdown=(value)
     @property_flush[:actions_after_shutdown] = value
+  end
+
+  def actions_after_reboot=(value)
+    @property_flush[:actions_after_reboot] = value
   end
 
   def actions_after_reboot=(value)
@@ -169,6 +176,7 @@ Puppet::Type.type(:vm_instance).provide(:vms) do
 
   def flush
     xapi=self.class.xapi
+    Puppet.debug("hihi 1")
     return unless @property_flush
 
     if @property_flush[:ensure]
@@ -177,14 +185,15 @@ Puppet::Type.type(:vm_instance).provide(:vms) do
           Puppet.info("Calling present")
           puts "Calling present"
         when :running
-          if @property_hash[:ensure] == "halted"
+          if @property_hash[:ensure] == "stopped"
             Puppet.debug("vm (#{@property_hash[:name]}) waiting to start VM")
             #task = xapi.Async.VM.start(@property_hash[:vm_ref],false,true)
 						xapi.VM.start(@property_hash[:vm_ref],false,true)
             #wait_on_task(task)
             #Puppet.debug("vm (#{@property_hash[:name]}) vm should be started")
+            @property_hash[:ensure]=@property_flush[:ensure]
           else
-            Puppet.debug("vm (#{@property_hash[:name]}) is already in a Running state, so nothing is required")
+            Puppet.debug("vm (#{@property_hash[:name]}) is not in a stopped state, state=#{@property_hash[:ensure]}")
           end
         when :halted
           if @property_hash[:ensure] == "running"
@@ -215,98 +224,144 @@ Puppet::Type.type(:vm_instance).provide(:vms) do
         # TODO Also remove the disks
         xapi.VM.destroy(@property_hash[:vm_ref])
       end
-
-      if @property_flush[:vcpus_max]
-        xapi.VM.set_VCPUs_max(@property_hash[:vm_ref], @property_flush[:vcpus_max])
-        @property_hash[:vcpus_max]=@property_flush[:vcpus_max]
-      end
-
-      if @property_flush[:actions_after_shutdown]
-        xapi.VM.set_actions_after_shutdown(@property_hash[:vm_ref], @property_flush[:actions_after_shutdown])
-        @property_hash[:actions_after_shutdown]=@property_flush[:actions_after_shutdown]
-      end
-
-      if @property_flush[:actions_after_crash]
-        xapi.VM.set_actions_after_crash(@property_hash[:vm_ref], @property_flush[:actions_after_crash])
-        @property_hash[:actions_after_crash]=@property_flush[:actions_after_crash]
-      end
-
-      if @property_flush[:actions_after_shutdown]
-        xapi.VM.set_actions_after_shutdown(@property_hash[:vm_ref], @property_flush[:actions_after_shutdown])
-        @property_hash[:actions_after_shutdown]=@property_flush[:actions_after_shutdown]
-      end
-
-      if @property_flush[:vcpus]
-        xapi.VM.set_VCPUs(@property_hash[:vm_ref], @property_flush[:vcpus])
-        @property_hash[:vcpus]=@property_flush[:vcpus]
-      end
-
-      if @property_flush[:desc]
-        xapi.VM.set_name_description(@property_hash[:vm_ref], @property_flush[:desc])
-        @property_hash[:desc]=@property_flush[:desc]
-      end
-
-      if @property_flush[:interfaces]
-        interfaces=@property_flush[:interfaces]
-        interfaces.each do |device_id, name|
-          next if @property_hash[:interfaces][device_id] == name
-
-          Puppet.debug("Looking up network_ref for: #{name}")
-          network_ref = xapi.network.get_by_name_label(name).first
-          Puppet.debug(" => #{name} => #{network_ref}")
-          if network_ref.nil?
-            Puppet.error("Network #{name} not found in xen")
-            next
-          end
-          if @property_hash[:vifs][device_id] && @property_hash[:interfaces][device_id] != name
-            Puppet.debug("Device with ID #{device_id} already exist, going to remove it")
-            vif_ref = @property_hash[:vifs][device_id]
-            xapi.VIF.destroy(vif_ref)
-          end
-          vif = {
-            'device'  => device_id,
-            'network' => network_ref,
-            'VM'  => @property_hash[:vm_ref],
-            'MAC' => generate_mac,
-            'MTU' => '1500',
-            'other_config' => {},
-            'qos_algorithm_type'   => '',
-            'qos_algorithm_params' => {}
-          }
-          vif_ref = xapi.VIF.create(vif)
-
-        end
-
-        # Now find vifs which are not configred and remove them
-        @property_hash[:vifs].each do |device_id, vif_ref|
-          next if @property_flush[:interfaces][device_id]
-          Puppet.debug("Device found which should be removed with ID #{vif_ref}")
-          xapi.VIF.destroy(vif_ref)
-        end
-      end
-
     end
 
-    if @property_flush[:ram]  &&  @property_flush[:ram] > @property_hash[:ram]
-      xapi.VM.set_memory_static_max(@property_hash[:vm_ref], @property_flush[:ram])
+    Puppet.debug("hihi 3")
+    if @property_flush[:vcpus_max]
+      if @property_hash[:ensure] == "halted"
+        xapi.VM.set_VCPUs_max(@property_hash[:vm_ref], @property_flush[:vcpus_max])
+        @property_hash[:vcpus_max]=@property_flush[:vcpus_max]
+      else
+       err "Can't change vcpus_max while running, please stop VM in order to adjust"
+      end
+    end
+
+    Puppet.debug("hihi 4")
+    if @property_flush[:actions_after_shutdown]
+      xapi.VM.set_actions_after_shutdown(@property_hash[:vm_ref], @property_flush[:actions_after_shutdown])
+      @property_hash[:actions_after_shutdown]=@property_flush[:actions_after_shutdown]
+    end
+
+    Puppet.debug("hihi 5")
+    if @property_flush[:actions_after_crash]
+      xapi.VM.set_actions_after_crash(@property_hash[:vm_ref], @property_flush[:actions_after_crash])
+      @property_hash[:actions_after_crash]=@property_flush[:actions_after_crash]
+    end
+
+    Puppet.debug("hihi 6")
+    if @property_flush[:actions_after_shutdown]
+      xapi.VM.set_actions_after_shutdown(@property_hash[:vm_ref], @property_flush[:actions_after_shutdown])
+      @property_hash[:actions_after_shutdown]=@property_flush[:actions_after_shutdown]
+    end
+
+    Puppet.debug("hihi 7")
+    if @property_flush[:vcpus]
+      xapi.VM.set_VCPUs_at_startup(@property_hash[:vm_ref], @property_flush[:vcpus])
+      xapi.VM.set_VCPUs_number_live(@property_hash[:vm_ref], @property_flush[:vcpus])
+      @property_hash[:vcpus]=@property_flush[:vcpus]
+    end
+
+    Puppet.debug("hihi 8")
+    if @property_flush[:desc]
+      xapi.VM.set_name_description(@property_hash[:vm_ref], @property_flush[:desc])
+      @property_hash[:desc]=@property_flush[:desc]
+    end
+
+    Puppet.debug("hihi 9")
+    if @property_flush[:interfaces]
+      interfaces=@property_flush[:interfaces]
+      interfaces.each do |device_id, name|
+        next if @property_hash[:interfaces][device_id] == name
+        Puppet.debug("Looking up network_ref for: #{name}")
+        network_ref = xapi.network.get_by_name_label(name).first
+        Puppet.debug(" => #{name} => #{network_ref}")
+        if network_ref.nil?
+          Puppet.error("Network #{name} not found in xen")
+          next
+        end
+        if @property_hash[:vifs][device_id] && @property_hash[:interfaces][device_id] != name
+          Puppet.debug("Device with ID #{device_id} already exist, going to remove it")
+          vif_ref = @property_hash[:vifs][device_id]
+          xapi.VIF.destroy(vif_ref)
+        end
+        vif = {
+          'device'  => device_id,
+          'network' => network_ref,
+          'VM'  => @property_hash[:vm_ref],
+          'MAC' => generate_mac,
+          'MTU' => '1500',
+          'other_config' => {},
+          'qos_algorithm_type'   => '',
+          'qos_algorithm_params' => {}
+        }
+        vif_ref = xapi.VIF.create(vif)
+      end
+
+      # Now find vifs which are not configred and remove them
+      @property_hash[:vifs].each do |device_id, vif_ref|
+        next if @property_flush[:interfaces][device_id]
+        Puppet.debug("Device found which should be removed with ID #{vif_ref}")
+        xapi.VIF.destroy(vif_ref)
+      end
+    end
+
+
+    Puppet.debug("hihi 10")
+
+    if @property_flush[:memory_static_min]
+      if @property_hash[:ensure] == "halted"
+        xapi.VM.set_memory_static_min(@property_hash[:vm_ref], @property_flush[:memory_static_min])
+        @property_hash[:vcpus_max]=@property_flush[:vcpus_max]
+      else
+       err "Can't change memory_static_min while running, please stop VM in order to adjust"
+      end
+    end
+
+    if @property_flush[:memory_static_max]
+      if @property_hash[:ensure] == "halted"
+        xapi.VM.set_memory_static_max(@property_hash[:vm_ref], @property_flush[:memory_static_max])
+        @property_hash[:vcpus_max]=@property_flush[:vcpus_max]
+      else
+       err "Can't change memory_static_max while running, please stop VM in order to adjust"
+      end
+    end
+
+    if @property_flush[:ram] && @property_flush[:ram] > @property_hash[:ram]
+      Puppet.debug("1")
+      # Give the VM the amount of ram configred
       xapi.VM.set_memory_dynamic_max(@property_hash[:vm_ref], @property_flush[:ram])
-      xapi.VM.set_memory_dynamic_min(@property_hash[:vm_ref], @property_flush[:ram])
-      xapi.VM.set_memory_static_min(@property_hash[:vm_ref], @property_flush[:ram])
+      Puppet.debug("2")
+      # Calculate the min dynamic allocation based on a percentage of memory_dynamic_max
+      dynamic_min=(@property_flush[:ram].to_i*(70.0/100)).round
+      Puppet.debug("mem_dyn_min is set 70% of the configured RAM = #{dynamic_min.to_s}")
+      xapi.VM.set_memory_dynamic_min(@property_hash[:vm_ref], dynamic_min.to_s)
+      Puppet.debug("3")
       @property_hash[:ram]=@property_flush[:ram]
+      @property_hash[:memory_dynamic_mim]=dynamic_min
     end
 
     if @property_flush[:ram] && @property_flush[:ram] < @property_hash[:ram]
-      xapi.VM.set_memory_static_min(@property_hash[:vm_ref], @property_flush[:ram])
-      xapi.VM.set_memory_dynamic_min(@property_hash[:vm_ref], @property_flush[:ram])
+      Puppet.debug("1.1")
+      # Calculate the min dynamic allocation based on a percentage of memory_dynamic_max
+      dynamic_min=(@property_flush[:ram].to_i*(70.0/100)).round
+      Puppet.debug("mem_dyn_min is set 70% of the configured RAM = #{dynamic_min.to_s}")
+      xapi.VM.set_memory_dynamic_min(@property_hash[:vm_ref], dynamic_min.to_s)
+      Puppet.debug("2.2")
+      # Give the VM the amount of ram configred
       xapi.VM.set_memory_dynamic_max(@property_hash[:vm_ref], @property_flush[:ram])
-      xapi.VM.set_memory_static_max(@property_hash[:vm_ref], @property_flush[:ram])
+      Puppet.debug("3.3")
       @property_hash[:ram]=@property_flush[:ram]
+      @property_hash[:memory_dynamic_mim]=dynamic_min
     end
 
+
+    Puppet.debug("hihi 11")
+    Puppet.debug("hihi 12")
     if @property_flush[:homeserver] &&  @property_flush[:homeserver] == "auto"
       xapi.VM.set_affinity(@property_hash[:vm_ref], 'OpaqueRef:NULL')
     end
 
+    Puppet.debug("hihi 13")
     if @property_flush[:homeserver] &&  @property_flush[:homeserver] != "auto"
       homeserver_ref = xapi.host.get_by_name_label(@property_flush[:homeserver])
       puts homeserver_ref

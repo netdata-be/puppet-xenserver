@@ -24,8 +24,22 @@ Puppet::Type.newtype(:vm_instance) do
       provider.running
     end
 
-
   end
+
+  newproperty(:vifs) do
+    desc 'The virtual interfaces ID.'
+    validate do |value|
+      fail 'vifs is read-only'
+    end
+  end
+
+  newproperty(:vm_ref) do
+    desc 'The virtual machine ref.'
+    validate do |value|
+      fail 'vm_ref is read-only'
+    end
+  end
+
 
   newparam(:name, namevar: true) do
     desc 'The name of the instance.'
@@ -35,9 +49,29 @@ Puppet::Type.newtype(:vm_instance) do
     end
   end
 
+  newproperty(:min_ram_prct) do
+    desc 'What is the lower boundery of the dynamic RAM which a VM is garanteed to have, in a range from 0 to 100'
+    defaultto "70"
+  end
+
   newproperty(:ram) do
     desc 'How much RAM does the machine have.'
   end
+
+  newproperty(:memory_dynamic_min) do
+    desc 'Todo'
+  end
+
+  newproperty(:memory_static_min) do
+    desc 'Defaults to 256MB'
+    defaultto '268435456'
+  end
+
+  newproperty(:memory_static_max) do
+    desc 'Defaults to 16G'
+    defaultto '16106127360'
+  end
+
 
   newproperty(:desc) do
     desc 'Description of the VM.'
