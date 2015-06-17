@@ -32,14 +32,17 @@ Puppet::Type.newtype(:vm_instance) do
 
   newproperty(:actions_after_shutdown) do
     desc 'What should xenserver do after a shutdown.'
+    defaultto "destroy"
   end
 
   newproperty(:actions_after_reboot) do
     desc 'What should xenserver do after a reboot.'
+    defaultto "restart"
   end
 
   newproperty(:actions_after_crash) do
     desc 'What should xenserver do after a crash.'
+    defaultto "restart"
   end
 
   newproperty(:vcpus_max) do
