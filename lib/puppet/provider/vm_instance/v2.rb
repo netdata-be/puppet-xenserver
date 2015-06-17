@@ -12,8 +12,8 @@ Puppet::Type.type(:vm_instance).provide(:vms) do
   def self.xapi
     @xapi ||= begin
       verify    = :verify_none
-      xapi_host = 'http://10.x'
-      password  = ''
+      xapi_host = 'http://10.12.12.34'
+      password  = 'Vasco123.'
       username  = 'root'
       session = XenApi::Client.new(xapi_host, 10, verify)
       session.login_with_password(username, password)
@@ -56,6 +56,8 @@ Puppet::Type.type(:vm_instance).provide(:vms) do
         puts record['affinity']
         homeserver = xapi.host.get_name_label(record['affinity'])
       end
+
+      record['power_state'] = "stopped" if record['power_state'].downcase == "halted"
 
       vm_instance = {
         :name                   => record['name_label'],
@@ -120,7 +122,7 @@ Puppet::Type.type(:vm_instance).provide(:vms) do
 
   def exists?
     case @property_hash[:ensure]
-      when /halted|running/
+      when /stopped|running/
         true
       else
         false
@@ -135,8 +137,8 @@ Puppet::Type.type(:vm_instance).provide(:vms) do
     @property_flush[:ensure] = :absent
   end
 
-  def halted
-    @property_flush[:ensure] = :halted
+  def stopped
+    @property_flush[:ensure] = :stopped
   end
 
   def running
@@ -175,9 +177,12 @@ Puppet::Type.type(:vm_instance).provide(:vms) do
           Puppet.info("Calling present")
           puts "Calling present"
         when :running
-          if @property_hash[:ensure] == "running"
-            task = xapi.Async.VM.start(@property_hash[:vm_ref],false,true)
-            wait_on_task(task)
+          if @property_hash[:ensure] == "halted"
+            Puppet.debug("vm (#{@property_hash[:name]}) waiting to start VM")
+            #task = xapi.Async.VM.start(@property_hash[:vm_ref],false,true)
+						xapi.VM.start(@property_hash[:vm_ref],false,true)
+            #wait_on_task(task)
+            #Puppet.debug("vm (#{@property_hash[:name]}) vm should be started")
           else
             Puppet.debug("vm (#{@property_hash[:name]}) is already in a Running state, so nothing is required")
           end

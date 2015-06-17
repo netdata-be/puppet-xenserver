@@ -4,14 +4,26 @@ Puppet::Type.newtype(:vm_instance) do
     @doc = 'Type representing an xenserver vm instance.'
 
 
-  ensurable do
-    newvalue(:halted) do
-      provider.halted
+  newproperty(:ensure) do
+    newvalue(:present) do
+      #  provider.create unless provider.running?
+      provider.running
+    end
+
+    newvalue(:stopped) do
+      #provider.stop unless provider.stopped?
+      provider.stopped
+    end
+
+    newvalue(:absent) do
+      provider.destroy if provider.exists?
     end
 
     newvalue(:running) do
+      #provider.create unless provider.running?
       provider.running
     end
+
 
   end
 
@@ -24,10 +36,6 @@ Puppet::Type.newtype(:vm_instance) do
   end
 
   newproperty(:ram) do
-    desc 'How much RAM does the machine have.'
-  end
-
-  newproperty(:state) do
     desc 'How much RAM does the machine have.'
   end
 
