@@ -4,7 +4,16 @@ Puppet::Type.newtype(:vm_instance) do
     @doc = 'Type representing an xenserver vm instance.'
 
 
-  ensurable
+  ensurable do
+    newvalue(:halted) do
+      provider.halted
+    end
+
+    newvalue(:running) do
+      provider.running
+    end
+
+  end
 
   newparam(:name, namevar: true) do
     desc 'The name of the instance.'
