@@ -79,6 +79,12 @@ Puppet::Type.newtype(:vm_instance) do
 
   newproperty(:vcpus) do
     desc 'How much virtual CPUs should the vm have.'
+    defaultto '2'
+  end
+
+  newproperty(:disksize) do
+    desc 'how big should the root partition be.'
+    defaultto '8gb'
   end
 
   newproperty(:actions_after_shutdown) do
@@ -99,6 +105,35 @@ Puppet::Type.newtype(:vm_instance) do
   newproperty(:vcpus_max) do
     desc 'Whats the max Virtual CPUs in the VM.'
     defaultto "16"
+  end
+
+  newparam(:debian_preseed) do
+    desc 'This is the debian installer preseed.'
+    defaultto "http://10.12.12.35/wheezy-preseed.cfg"
+  end
+
+  newparam(:ip_address) do
+    desc 'The initial IP for the VM, can also be dhcp.'
+    defaultto "dhcp"
+  end
+
+  newparam(:netmask) do
+    desc 'The netmask of the vm.'
+    defaultto "255.255.255.0"
+  end
+
+  newparam(:nameserver) do
+    desc 'The nameserver of the vm.'
+    defaultto "8.8.8.8"
+  end
+
+  newparam(:gateway) do
+    desc 'The gateway of the vm'
+  end
+
+  newparam(:debian_repo) do
+    desc 'The repo to install debian from'
+    defaultto "http://ftp.be.debian.org/debian/"
   end
 
   newproperty(:cores_per_socket) do
