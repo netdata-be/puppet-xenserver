@@ -1,4 +1,5 @@
 require_relative '../../xenapi/xenapi.rb'
+require 'pry'
 
 Puppet::Type.newtype(:vm_instance) do
     @doc = 'Type representing an xenserver vm instance.'
@@ -49,11 +50,6 @@ Puppet::Type.newtype(:vm_instance) do
     end
   end
 
-  newproperty(:min_ram_prct) do
-    desc 'What is the lower boundery of the dynamic RAM which a VM is garanteed to have, in a range from 0 to 100'
-    defaultto "70"
-  end
-
   newproperty(:ram) do
     desc 'How much RAM does the machine have.'
   end
@@ -82,11 +78,6 @@ Puppet::Type.newtype(:vm_instance) do
     defaultto '2'
   end
 
-  newproperty(:disksize) do
-    desc 'how big should the root partition be.'
-    defaultto '8gb'
-  end
-
   newproperty(:actions_after_shutdown) do
     desc 'What should xenserver do after a shutdown.'
     defaultto "destroy"
@@ -105,6 +96,43 @@ Puppet::Type.newtype(:vm_instance) do
   newproperty(:vcpus_max) do
     desc 'Whats the max Virtual CPUs in the VM.'
     defaultto "16"
+  end
+
+  newproperty(:disks, :array_matching => :all) do
+    desc 'The disks added to the vm.'
+
+    def insync?(is)
+      is.to_s == should.to_s
+    end
+
+    munge do |value|
+
+      value_split = value.split(':')
+
+      # Convert the size to a consecent value
+      case value_split[1]
+        when /\d+\.?(\d+)?t|\d+\.?(\d+)?tb|\d+\.?(\d+)?tib/i
+          size="#{value_split[1].to_f}TB"
+        when /\d+\.?(\d+)?m|\d+\.?(\d+)?mb|\d+\.?(\d+)?kib/i
+          size="#{value_split[1].to_f}MB"
+        when /\d+\.?(\d+)?kb|\d+\.?(\d+)?kib/i
+          size="#{split[1].to_f}KB"
+        when /\d+\.?(\d+)?b/i
+          size="#{value_split[1].to_f}B"
+        else
+          size="#{value_split[1].to_f}GB"
+      end
+
+      if value_split != "#{@resource[:name]}-#{value_split[0]}"
+        name = "#{@resource[:name]}-#{value_split[0]}"
+        value_split[0]=name
+      end
+
+      Puppet.debug(value.inspect)
+      value_split[1]=size
+      value=value_split.join(':')
+      Puppet.debug(value.inspect)
+    end
   end
 
   newparam(:debian_preseed) do

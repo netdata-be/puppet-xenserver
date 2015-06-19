@@ -1,5 +1,7 @@
 require_relative '../../../xenapi/xenapi.rb'
 require 'yaml'
+require 'pry'
+
 
 
 Puppet::Type.type(:vm_instance).provide(:vms) do
@@ -7,6 +9,18 @@ Puppet::Type.type(:vm_instance).provide(:vms) do
   # This creates a bunch of getters/setters for our properties/parameters
   # this is only for prefetch/flush providers
   mk_resource_methods
+
+  class Integer
+    def to_human
+      {
+        'B'  => 1024,
+        'KB' => 1024 * 1024,
+        'MB' => 1024 * 1024 * 1024,
+        'GB' => 1024 * 1024 * 1024 * 1024,
+        'TB' => 1024 * 1024 * 1024 * 1024 * 1024
+      }.each_pair { |e, s| return "#{(self.to_f / (s / 1024)).round(2)}#{e}" if self < s }
+    end
+  end
 
 
   def self.xapi
@@ -41,12 +55,30 @@ Puppet::Type.type(:vm_instance).provide(:vms) do
       next if record['name_label'] =~ /control domain/i
       interfaces={}
       vifs={}
+      disks=[]
 
       record['VIFs'].each do |vif|
         network = xapi.VIF.get_network(vif)
         device = xapi.VIF.get_device(vif)
         vifs[device]=vif
         interfaces[device]=xapi.network.get_name_label(network)
+      end
+
+      Puppet.debug("Collectig metadata for vm: #{record['name_label']}")
+      record['VBDs'].each do |vdb|
+        disk={}
+        vdi_ref = xapi.VBD.get_VDI(vdb)
+        next if vdi_ref=="OpaqueRef:NULL"
+        sr_ref=xapi.VDI.get_SR(vdi_ref)
+        name=xapi.VDI.get_name_label(vdi_ref)
+        size=xapi.VDI.get_virtual_size(vdi_ref)
+        sr=xapi.SR.get_name_label(sr_ref)
+        device = xapi.VBD.get_userdevice(vdb)
+
+        disk['name']=name
+        disk['size']=size.to_i.to_human
+        disk['sr']=sr
+        disks[device.to_i] = disk
       end
 
       if record['affinity'] == 'OpaqueRef:NULL'
@@ -69,12 +101,13 @@ Puppet::Type.type(:vm_instance).provide(:vms) do
         :actions_after_shutdown => record['actions_after_shutdown'], #done
         :actions_after_reboot   => record['actions_after_reboot'], #done
         :actions_after_crash    => record['actions_after_crash'], #done
-        :ram                    => record['memory_dynamic_max'], 
+        :ram                    => record['memory_dynamic_max'],
         :memory_dynamic_min     => record['memory_dynamic_min'],
         :memory_static_max      => record['memory_static_max'],
-        :memory_static_min      => record['memory_static_min'],    
+        :memory_static_min      => record['memory_static_min'],
         :interfaces             => interfaces, #done
         :vifs                   => vifs, #done
+        :disks                  => disks,
         :cores_per_socket       => record['platform']['cores-per-socket'],
         :homeserver             => homeserver, #broke ?
         :provider               => self.name
@@ -124,6 +157,10 @@ Puppet::Type.type(:vm_instance).provide(:vms) do
 
   def homeserver=(value)
     @property_flush[:homeserver] = value
+  end
+
+  def disks=(value)
+    @property_flush[:disks] = value
   end
 
 
@@ -322,7 +359,7 @@ Puppet::Type.type(:vm_instance).provide(:vms) do
     Puppet.debug("vm_ref = #{vm_ref}")
 
     begin
-      xapi.VM.set_name_description(vm_ref, "VM crete by puppet as #{resource[:name]}")
+      xapi.VM.set_name_description(vm_ref, @resource[:desc])
 
       # make sure we don't clobber existing params
       other_config = {}
@@ -347,14 +384,21 @@ Puppet::Type.type(:vm_instance).provide(:vms) do
       Puppet.debug("Setting vcpus")
       xapi.VM.set_VCPUs_at_startup( vm_ref , @resource[:vcpus])
 
-      # Now create the disks
-      
-      @resource[:disks].each do |disk|
+      @resource[:disks].each_with_index do |disk, index|
+        disk['desc'] = "Added by puppet" if disk['desc'].nil?
+        disk['id'] = index if disk['id'].nil?
+        Puppet.debug("Adding disk #{disk['name']}")
+        sr_ref = xapi.SR.get_by_name_label(disk['sr']).first
+        if sr_ref.empty? || sr_ref.nil?
+          err " No storage REPO found with that name"
+          next
+        end
+        Puppet.debug("SR found with ref #{sr_ref}")
+        vdi_ref = create_vdi("#{@resource[:name]}-#{disk['name']}", sr_ref, disk['size'] , "Created by puppet")
+        disk['id'].to_i == 0 ?  bootable = true : bootable = false
+        vbd_ref = create_vbd(vm_ref, vdi_ref, disk['id'], bootable)
       end
 
-      vdi_ref = create_vdi("#{@resource[:name]}-root", sr_ref, @resource[:disksize], 'Root disk created by puppet')
-      position == 0 ?  bootable = true : bootable = false
-      vbd_ref = create_vbd(vm_ref, vdi_ref, position, bootable)
       create_networks(vm_ref, resource[:interfaces])
 
       Puppet.debug("provision")
@@ -427,6 +471,8 @@ Puppet::Type.type(:vm_instance).provide(:vms) do
             end
           else
             Puppet.debug("VM does not exist, create logic to create one")
+            # Now create the disks
+            #binding.pry
             create
 
           end
@@ -601,6 +647,13 @@ Puppet::Type.type(:vm_instance).provide(:vms) do
       puts homeserver_ref
       puts @property_hash[:vm_ref]
       xapi.VM.set_affinity(homeserver_ref, @property_hash[:vm_ref])
+    end
+
+    Puppet.debug("Stage 14")
+    if @property_flush[:disks]
+      Puppet.debug(@resource[:disks].inspect)
+      Puppet.debug(@property_hash[:disks].inspect)
+      Puppet.debug(@property_flush[:disks].inspect)
     end
 
   end
